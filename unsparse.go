@@ -57,7 +57,7 @@ var ErrNotUnsparsed = errors.New("unsparse: not an unsparsed file (bad magic)")
 //
 // Since a sparse file is represented with data and holes, the format simply
 // removes the holes. It is an Unsparsed header followed by zero or more
-// extents, each an [Extant] header followed by its data:
+// extents, each an [Extent] header followed by its data:
 //
 //	[8]byte          // Unsparsed.Magic
 //	[2]byte          // Unsparsed.Version
@@ -107,9 +107,9 @@ func ReadHeader(r io.Reader) (Unsparsed, error) {
 	return hdr, nil
 }
 
-// Extant is the header for one extent of data in the [Unsparsed] format. It
+// Extent is the header for one extent of data in the [Unsparsed] format. It
 // is followed by Size bytes of data.
-type Extant struct {
+type Extent struct {
 	// Offset is where the data starts in the original file.
 	Offset int64
 	// Size is the number of data bytes that follow.
@@ -180,7 +180,7 @@ func Unsparse(dst io.Writer, src SparseReader) error {
 		if err != nil {
 			return err
 		}
-		if err := binary.Write(bw, byteOrder, Extant{Offset: start, Size: end - start}); err != nil {
+		if err := binary.Write(bw, byteOrder, Extent{Offset: start, Size: end - start}); err != nil {
 			return err
 		}
 		if _, err := io.CopyN(bw, io.NewSectionReader(src, start, end-start), end-start); err != nil {
@@ -289,7 +289,7 @@ func Sparse(dst TruncateWriter, src io.Reader) error {
 
 	var end int64
 	for {
-		var e Extant
+		var e Extent
 		err := binary.Read(br, byteOrder, &e)
 		if err == io.EOF {
 			break
