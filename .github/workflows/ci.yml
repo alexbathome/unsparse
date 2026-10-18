@@ -28,9 +28,11 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: go vet
         run: go vet ./...
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      # Built from source with the repo's Go so it can never be older than go.mod.
+      - name: golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+          golangci-lint run
 
   test:
     strategy:
@@ -44,6 +46,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Test
+        shell: bash
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
