@@ -6,24 +6,6 @@
 //
 // To move an [Unsparsed] file to a sparse file, you can use the [Sparse]
 // function.
-//
-// Example:
-//
-//	f, err := os.Open("mysparsefile")
-//	if err != nil {
-//		panic(err)
-//	}
-//	sr, err := unsparse.SparseReaderFile(f)
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	buf := bytes.NewBuffer(nil)
-//	if err := unsparse.Unsparse(buf, sr); err != nil {
-//		panic(err)
-//	}
-//
-//	// buf now holds the [Unsparsed] format
 package unsparse
 
 import (
@@ -144,7 +126,7 @@ func SparseReaderFile(f *os.File) (SparseReader, error) {
 // their holes detected.
 //
 // Some tools are unable to correctly understand sparse files. Such as
-// Golang's tar.Differ
+// Golang's [tar.Writer]
 //
 // Example:
 //
