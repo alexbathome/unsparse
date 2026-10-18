@@ -153,7 +153,7 @@ func TestBufferDocExample(t *testing.T) {
 	if err := Unsparse(&packed, b); err != nil {
 		t.Fatal(err)
 	}
-	if want := 8 + 2*(16+5); packed.Len() != want {
+	if want := headerSize + 2*(16+5); packed.Len() != want {
 		t.Errorf("packed size %d, want %d", packed.Len(), want)
 	}
 
@@ -183,9 +183,9 @@ func TestBufferRoundTrip(t *testing.T) {
 		packed int
 	}{
 		// header + 2 * (extent header + 5 bytes)
-		{"buffer", src, 8 + 2*(16+5)},
+		{"buffer", src, headerSize + 2*(16+5)},
 		// "llo" and "world"
-		{"section", io.NewSectionReader(src, 1<<20+2, 5<<20), 8 + (16 + 3) + (16 + 5)},
+		{"section", io.NewSectionReader(src, 1<<20+2, 5<<20), headerSize + (16 + 3) + (16 + 5)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var packed bytes.Buffer

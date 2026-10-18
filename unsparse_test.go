@@ -2,6 +2,8 @@ package unsparse
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -99,4 +101,60 @@ func TestTrailingHole(t *testing.T) {
 		t.Fatal(err)
 	}
 	roundTrip(t, io.NewSectionReader(src, 0, 1<<20), make([]byte, 1<<20))
+}
+
+var headerSize = binary.Size(Unsparsed{})
+
+func TestHeader(t *testing.T) {
+	var packed bytes.Buffer
+	if err := Unsparse(&packed, bytes.NewReader([]byte("hi"))); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(packed.Bytes(), Magic[:]) {
+		t.Fatalf("output %q doesn't start with magic", packed.Bytes())
+	}
+	hdr, err := ReadHeader(&packed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.Version != Version || hdr.ApparentSize != 2 {
+		t.Errorf("unexpected header %+v", hdr)
+	}
+}
+
+func TestReadHeaderErrors(t *testing.T) {
+	good := Unsparsed{Magic: Magic, Version: Version, ApparentSize: 1}
+	enc := func(h Unsparsed) []byte {
+		var b bytes.Buffer
+		binary.Write(&b, byteOrder, h)
+		return b.Bytes()
+	}
+	badVersion, badFlags, negSize, badMagic := good, good, good, good
+	badVersion.Version = 99
+	badFlags.Flags = 1
+	negSize.ApparentSize = -1
+	badMagic.Magic[0] = 0
+
+	for _, tc := range []struct {
+		name  string
+		input []byte
+		magic bool // want ErrNotUnsparsed
+	}{
+		{"empty", nil, true},
+		{"short", enc(good)[:5], true},
+		{"bad magic", enc(badMagic), true},
+		{"bad version", enc(badVersion), false},
+		{"bad flags", enc(badFlags), false},
+		{"negative size", enc(negSize), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ReadHeader(bytes.NewReader(tc.input))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if got := errors.Is(err, ErrNotUnsparsed); got != tc.magic {
+				t.Errorf("errors.Is(ErrNotUnsparsed) = %v, want %v (%v)", got, tc.magic, err)
+			}
+		})
+	}
 }

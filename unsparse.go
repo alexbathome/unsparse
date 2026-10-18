@@ -29,10 +29,28 @@ package unsparse
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 )
+
+// Magic identifies a file as being in the [Unsparsed] format. Like PNG's, it
+// starts with a non-ASCII byte so text tools don't mistake it for text, and
+// ends in a newline so line-ending translation is detectable.
+//
+// For file(1), the equivalent magic(5) entry is:
+//
+//	0	string	\x89UNSPRS\n	Unsparsed sparse file data
+//	>8	beshort	x		\b, version %d
+//	>12	bequad	x		\b, apparent size %lld bytes
+var Magic = [8]byte{0x89, 'U', 'N', 'S', 'P', 'R', 'S', '\n'}
+
+// Version is the current version of the [Unsparsed] format.
+const Version uint16 = 1
+
+// ErrNotUnsparsed is returned, wrapped, when data does not start with [Magic].
+var ErrNotUnsparsed = errors.New("unsparse: not an unsparsed file (bad magic)")
 
 // Unsparsed is the header of the binary format written by [Unsparse] and
 // read by [Sparse].
@@ -41,6 +59,9 @@ import (
 // removes the holes. It is an Unsparsed header followed by zero or more
 // extents, each an [Extant] header followed by its data:
 //
+//	[8]byte          // Unsparsed.Magic
+//	[2]byte          // Unsparsed.Version
+//	[2]byte          // Unsparsed.Flags
 //	[8]byte          // Unsparsed.ApparentSize
 //	[8]byte          // Extant.Offset
 //	[8]byte          // Extant.Size
@@ -50,8 +71,40 @@ import (
 // All integers are big-endian. Extents are in increasing offset order and
 // never overlap; anything not covered by an extent is a hole.
 type Unsparsed struct {
+	// Magic is always [Magic].
+	Magic [8]byte
+	// Version is the format version, currently [Version].
+	Version uint16
+	// Flags is reserved; it is zero in version 1 and readers must reject
+	// flags they don't understand.
+	Flags uint16
 	// ApparentSize is the size of the original file, including holes.
 	ApparentSize int64
+}
+
+// ReadHeader reads and validates an [Unsparsed] header from r, leaving r
+// positioned at the first extent. It returns an error wrapping
+// [ErrNotUnsparsed] if r doesn't start with [Magic], so it can be used to
+// detect the format.
+func ReadHeader(r io.Reader) (Unsparsed, error) {
+	var hdr Unsparsed
+	if err := binary.Read(r, byteOrder, &hdr); err != nil {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return hdr, fmt.Errorf("%w: short header", ErrNotUnsparsed)
+		}
+		return hdr, fmt.Errorf("unsparse: reading header: %w", err)
+	}
+	switch {
+	case hdr.Magic != Magic:
+		return hdr, ErrNotUnsparsed
+	case hdr.Version != Version:
+		return hdr, fmt.Errorf("unsparse: unsupported version %d", hdr.Version)
+	case hdr.Flags != 0:
+		return hdr, fmt.Errorf("unsparse: unsupported flags %#x", hdr.Flags)
+	case hdr.ApparentSize < 0:
+		return hdr, fmt.Errorf("unsparse: invalid apparent size %d", hdr.ApparentSize)
+	}
+	return hdr, nil
 }
 
 // Extant is the header for one extent of data in the [Unsparsed] format. It
@@ -115,7 +168,7 @@ func Unsparse(dst io.Writer, src SparseReader) error {
 	findData := dataFinder(src, size)
 
 	bw := bufio.NewWriter(dst)
-	if err := binary.Write(bw, byteOrder, Unsparsed{ApparentSize: size}); err != nil {
+	if err := binary.Write(bw, byteOrder, Unsparsed{Magic: Magic, Version: Version, ApparentSize: size}); err != nil {
 		return err
 	}
 
@@ -226,12 +279,9 @@ type TruncateWriter interface {
 func Sparse(dst TruncateWriter, src io.Reader) error {
 	br := bufio.NewReader(src)
 
-	var hdr Unsparsed
-	if err := binary.Read(br, byteOrder, &hdr); err != nil {
-		return fmt.Errorf("unsparse: reading header: %w", err)
-	}
-	if hdr.ApparentSize < 0 {
-		return fmt.Errorf("unsparse: invalid apparent size %d", hdr.ApparentSize)
+	hdr, err := ReadHeader(br)
+	if err != nil {
+		return err
 	}
 	if err := dst.Truncate(0); err != nil {
 		return err
